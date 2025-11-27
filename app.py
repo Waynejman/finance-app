@@ -9,13 +9,12 @@ import csv
 import io
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your_secret_key' # 正式上線建議改複雜一點
+app.config['SECRET_KEY'] = 'your_secret_key'
 
-# ★★★ 修改這裡：自動判斷資料庫 (Render 用) ★★★
-# 如果讀得到 DATABASE_URL (Render 環境)，就用 Postgres；否則用本地 SQLite
+# 自動判斷資料庫 (Render 用 Postgres，本地用 SQLite)
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://") # 修正 Render 的網址格式
+    database_url = database_url.replace("postgres://", "postgresql://")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///finance.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -90,7 +89,6 @@ class Feedback(db.Model):
     date_sent = db.Column(db.DateTime, default=datetime.utcnow)
 
 def init_achievements():
-    # 這裡加上 try-except 是為了防止 Render 在還沒建立 Table 時就執行導致報錯
     try:
         default_achievements = [
             {"name": "記帳新手", "desc": "記下你的第一筆帳", "icon": "fa-baby"},
@@ -106,7 +104,6 @@ def init_achievements():
     except:
         pass
 
-# 初始化資料庫 (Render 環境下這行會自動建立 Table)
 with app.app_context():
     db.create_all()
     init_achievements()
@@ -182,10 +179,14 @@ def index():
         check_achievements(current_user, transaction=new_trans)
         return redirect(url_for('index'))
 
+    # ★★★ 修復重點：使用 extract 來兼容 PostgreSQL 與 SQLite ★★★
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    m_year, m_month = map(int, current_month.split('-'))
+
     transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
-        func.strftime('%Y-%m', Transaction.date) == current_month
+        func.extract('year', Transaction.date) == m_year,
+        func.extract('month', Transaction.date) == m_month
     ).order_by(Transaction.date.desc()).all()
 
     all_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='income').scalar() or 0
@@ -199,10 +200,14 @@ def index():
 @app.route('/analysis')
 @login_required
 def analysis():
+    # ★★★ 修復重點：使用 extract 來兼容 PostgreSQL 與 SQLite ★★★
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    m_year, m_month = map(int, current_month.split('-'))
+
     monthly_data = Transaction.query.filter(
         Transaction.user_id == current_user.id,
-        func.strftime('%Y-%m', Transaction.date) == current_month
+        func.extract('year', Transaction.date) == m_year,
+        func.extract('month', Transaction.date) == m_month
     ).order_by(Transaction.amount.desc()).all()
 
     expenses = [t for t in monthly_data if t.type == 'expense']
