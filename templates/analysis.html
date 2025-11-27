@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>財務分析</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #86A697; --secondary: #F4F7F6; --expense: #E76F51; --income: #2A9D8F; --accent: #E9C46A; }
+        body { background-color: var(--secondary); font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
+        .desktop-container { max-width: 1000px; margin: auto; }
+        .card-custom { border: none; border-radius: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        
+        /* RWD 設定 */
+        .navbar-desktop { display: flex; background-color: var(--primary); }
+        .mobile-bottom-nav { display: none; }
+        
+        @media (max-width: 991px) {
+            .navbar-desktop { display: none !important; }
+            .mobile-bottom-nav { display: flex; }
+            .container { padding-left: 20px; padding-right: 20px; }
+        }
+
+        /* 底部導航 */
+        .mobile-bottom-nav {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px;
+            background: white; border-top: 1px solid #eee; z-index: 1000;
+            justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        }
+        .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
+        .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
+        .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
+        
+        .ai-card { background-color: #E8F1EE; border-left: 5px solid var(--primary); color: #4A6359; }
+        .btn-check:checked + .btn-outline-custom { background-color: var(--primary); color: white; border-color: var(--primary); }
+        .btn-outline-custom { color: var(--primary); border-color: var(--primary); }
+    </style>
+</head>
+<body>
+    
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop mb-4 sticky-top shadow-sm">
+        <div class="container desktop-container">
+            <a class="navbar-brand fw-bold" href="/"><i class="fas fa-wallet me-2"></i>記帳管家</a>
+            <div class="d-flex navbar-nav me-auto">
+                <a class="nav-link" href="/">明細</a>
+                <a class="nav-link active" href="/analysis">分析</a>
+                <a class="nav-link" href="/settings">設定</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container desktop-container mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-3 pt-3 pt-lg-0">
+            <h4 class="text-secondary fw-bold"><i class="fas fa-chart-pie me-2" style="color: var(--primary);"></i>財務報表</h4>
+            <form action="/analysis" method="GET">
+                <input type="month" name="month" class="form-control shadow-sm border-0 fw-bold" value="{{ current_month }}" onchange="this.form.submit()" style="color: var(--primary);">
+            </form>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-5 mb-4">
+                <div class="card card-custom h-100">
+                    <div class="card-body text-center">
+                        <div class="btn-group w-100 mb-4" role="group">
+                            <button type="button" class="btn btn-outline-custom active" id="btnExpense" onclick="switchTab('expense')">支出</button>
+                            <button type="button" class="btn btn-outline-custom" id="btnIncome" onclick="switchTab('income')">收入</button>
+                        </div>
+                        <div style="position: relative; height: 300px; width: 100%;">
+                            <canvas id="mainChart"></canvas>
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                                <small class="text-muted" id="centerLabel">總支出</small><br>
+                                <strong class="fs-3" id="centerValue" style="color: var(--text-dark);">0</strong>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 p-3 rounded-3 text-start ai-card shadow-sm mb-3">
+                            <h6 class="fw-bold"><i class="fas fa-robot me-2"></i>AI 財務顧問</h6>
+                            <p class="small mb-0">{{ ai_advice }}</p>
+                        </div>
+
+                        {% if budget_analysis %}
+                        <div class="text-start border-top pt-4">
+                            <h6 class="fw-bold text-secondary mb-3 small">預算執行</h6>
+                            {% for b in budget_analysis %}
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span class="fw-bold">{{ b.category }}</span><span class="text-muted">${{ b.spent }} / ${{ b.limit }}</span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar bg-{{ b.status }}" role="progressbar" style="width: {{ b.percent }}%"></div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <h6 class="mb-3 text-secondary fw-bold">分類明細</h6>
+                <div class="accordion shadow-sm rounded-4 overflow-hidden border-0" id="accordionExpense">
+                    {% for cat, data in exp_grouped.items() %}
+                    <div class="accordion-item border-0 border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ce{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--expense);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>
+                        <div id="ce{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accordionExpense"><div class="accordion-body bg-light p-0"><ul class="list-group list-group-flush">{% for item in data.details %}<li class="list-group-item bg-light border-0 d-flex justify-content-between px-4 py-2"><span>{{ item.item_name }}</span><span class="text-danger">-${{ item.amount }}</span></li>{% endfor %}</ul></div></div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="accordion shadow-sm rounded-4 overflow-hidden d-none border-0" id="accordionIncome">
+                    {% for cat, data in inc_grouped.items() %}
+                    <div class="accordion-item border-0 border-bottom">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ci{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--income);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>
+                        <div id="ci{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accordionIncome"><div class="accordion-body bg-light p-0"><ul class="list-group list-group-flush">{% for item in data.details %}<li class="list-group-item bg-light border-0 d-flex justify-content-between px-4 py-2"><span>{{ item.item_name }}</span><span class="text-success">+${{ item.amount }}</span></li>{% endfor %}</ul></div></div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="mobile-bottom-nav">
+        <a href="/" class="mobile-nav-item"><i class="fas fa-home"></i>首頁</a>
+        <a href="/analysis" class="mobile-nav-item active"><i class="fas fa-chart-pie"></i>分析</a>
+        <div style="width: 20%;"></div>
+        <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
+        <a href="/settings" class="mobile-nav-item"><i class="fas fa-cog"></i>設定</a>
+    </nav>
+    <a href="/" class="btn rounded-circle shadow-lg d-flex d-lg-none align-items-center justify-content-center" style="position:fixed; bottom:85px; right:20px; width:56px; height:56px; background:var(--accent); color:white; font-size:1.5rem; z-index:999;"><i class="fas fa-plus"></i></a>
+
+    <script>
+        const expLabels = {{ exp_labels | tojson }};
+        const expValues = {{ exp_values | tojson }};
+        const incLabels = {{ inc_labels | tojson }};
+        const incValues = {{ inc_values | tojson }};
+        const totalExp = {{ total_expense }};
+        const totalInc = {{ total_income }};
+        let myChart = null;
+        const palette = ['#E76F51', '#2A9D8F', '#E9C46A', '#F4A261', '#264653', '#86A697', '#6B8A7C'];
+
+        function switchTab(type) {
+            const btnExp = document.getElementById('btnExpense');
+            const btnInc = document.getElementById('btnIncome');
+            const accExp = document.getElementById('accordionExpense');
+            const accInc = document.getElementById('accordionIncome');
+            
+            if (type === 'expense') {
+                btnExp.classList.add('active'); btnInc.classList.remove('active');
+                accExp.classList.remove('d-none'); accInc.classList.add('d-none');
+                document.getElementById('centerLabel').innerText = '總支出';
+                document.getElementById('centerValue').innerText = "$" + totalExp;
+                updateChart(expLabels, expValues);
+            } else {
+                btnExp.classList.remove('active'); btnInc.classList.add('active');
+                accExp.classList.add('d-none'); accInc.classList.remove('d-none');
+                document.getElementById('centerLabel').innerText = '總收入';
+                document.getElementById('centerValue').innerText = "$" + totalInc;
+                updateChart(incLabels, incValues);
+            }
+        }
+
+        function updateChart(labels, values) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            let data = values.length ? values : [1];
+            let colors = values.length ? palette : ['#E0E0E0'];
+            myChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 0, cutout: '75%' }] },
+                options: { plugins: { legend: { display: false } }, maintainAspectRatio: false }
+            });
+        }
+        switchTab('expense');
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

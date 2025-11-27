@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>記帳管家</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* --- 全站變數 (SABISEIJI 風格) --- */
+        :root {
+            --primary: #86A697; --primary-dark: #6B8A7C; --secondary: #F4F7F6;
+            --text-dark: #2C3E50; --expense: #E76F51; --income: #2A9D8F; --accent: #E9C46A;
+        }
+        body { background-color: var(--secondary); font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
+        
+        /* 容器與卡片 */
+        .desktop-container { max-width: 1000px; margin: auto; }
+        .card-custom { border: none; border-radius: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); background: #fff; }
+        
+        /* --- ★ RWD 核心魔法區 ★ --- */
+        
+        /* 預設：電腦版樣式 */
+        .navbar-desktop { display: flex; background-color: var(--primary); }
+        .mobile-header { display: none; }
+        .mobile-bottom-nav { display: none; }
+        .fab-btn { display: none; }
+        .desktop-form-area { display: block; }
+
+        /* 當螢幕小於 991px (平板/手機) 時，切換為 App 模式 */
+        @media (max-width: 991px) {
+            .navbar-desktop { display: none !important; }      /* 隱藏電腦導航 */
+            .mobile-header { display: flex; }                  /* 顯示手機標題 */
+            .mobile-bottom-nav { display: flex; }              /* 顯示底部導航 */
+            .fab-btn { display: flex; }                        /* 顯示懸浮按鈕 */
+            .desktop-form-area { display: none; }              /* 隱藏電腦版記帳區 */
+            .container { padding-left: 20px; padding-right: 20px; }
+        }
+
+        /* 手機版元件細節 */
+        .mobile-header { justify-content: space-between; align-items: center; padding: 20px 0; }
+        .mobile-bottom-nav {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px;
+            background: white; border-top: 1px solid #eee; z-index: 1000;
+            justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        }
+        .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
+        .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
+        .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
+        
+        .fab-btn {
+            position: fixed; bottom: 85px; right: 20px;
+            width: 56px; height: 56px; border-radius: 50%;
+            background-color: var(--accent); color: white; border: none;
+            box-shadow: 0 4px 15px rgba(233, 196, 106, 0.6); font-size: 1.5rem;
+            z-index: 999; align-items: center; justify-content: center;
+            transition: transform 0.2s;
+        }
+        .fab-btn:active { transform: scale(0.9); }
+    </style>
+</head>
+<body>
+    
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop mb-4 sticky-top shadow-sm">
+        <div class="container desktop-container">
+            <a class="navbar-brand fw-bold" href="/"><i class="fas fa-wallet me-2"></i>記帳管家</a>
+            <div class="d-flex navbar-nav me-auto">
+                <a class="nav-link active" href="/">明細</a>
+                <a class="nav-link" href="/analysis">分析</a>
+                <a class="nav-link" href="/settings">設定</a>
+            </div>
+            <div class="text-white d-flex align-items-center">
+                <span class="fw-bold me-2">{{ user.display_name }}</span>
+                <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=E9C46A&color=fff&rounded=true" width="35" class="rounded-circle border border-2 border-white">
+            </div>
+        </div>
+    </nav>
+
+    <div class="container desktop-container">
+        
+        <div class="mobile-header">
+            <div><h4 class="fw-bold mb-0 text-dark">早安,</h4><small class="text-muted">{{ user.display_name }}</small></div>
+            <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=E9C46A&color=fff&rounded=true" width="45" class="rounded-circle shadow-sm">
+        </div>
+
+        <div class="card card-custom mb-4">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-end mb-2">
+                    <div><h6 class="mb-0 fw-bold" style="color: var(--primary);"><i class="fas fa-fire me-2"></i>FIRE 進度</h6><small class="text-muted">目標: ${{ user.fire_target // 10000 }}萬</small></div>
+                    <div class="fw-bold fs-5" style="color: var(--primary);">{{ fire_progress }}%</div>
+                </div>
+                <div class="progress" style="height: 10px; border-radius: 10px; background-color: #e9ecef;">
+                    <div class="progress-bar" role="progressbar" style="width: {{ fire_progress }}%; background: linear-gradient(90deg, var(--expense), var(--accent)); border-radius: 10px;"></div>
+                </div>
+                <div class="mt-2 text-end small text-muted">淨資產: ${{ net_worth }}</div>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-6">
+                <form action="/" method="GET">
+                    <input type="month" name="month" class="form-control border-0 shadow-sm fw-bold" style="color: var(--primary-dark);" value="{{ current_month }}" onchange="this.form.submit()">
+                </form>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-4 mb-4">
+                <div class="card card-custom mb-3" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white;">
+                    <div class="card-body p-4">
+                        <small class="text-white-50">本月淨資產</small>
+                        {% set total_inc = transactions | selectattr("type", "equalto", "income") | map(attribute='amount') | sum %}
+                        {% set total_exp = transactions | selectattr("type", "equalto", "expense") | map(attribute='amount') | sum %}
+                        <h2 class="fw-bold display-5 mt-1">$ {{ total_inc - total_exp }}</h2>
+                        <div class="mt-4 d-flex justify-content-between">
+                            <span class="badge bg-white bg-opacity-25 fw-normal px-3 py-2 rounded-pill"><i class="fas fa-arrow-down me-1"></i> ${{ total_exp }}</span>
+                            <span class="badge bg-white bg-opacity-25 fw-normal px-3 py-2 rounded-pill"><i class="fas fa-arrow-up me-1"></i> ${{ total_inc }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="desktop-form-area card card-custom p-4">
+                    <h6 class="mb-3 text-secondary fw-bold">快速記帳</h6>
+                    <form method="POST" action="/">
+                        <div class="row g-3">
+                            <div class="col-12"><input type="date" name="date" class="form-control bg-light border-0 desk-date" required></div>
+                            <div class="col-4"><select name="type" class="form-select border-0 bg-light" id="typeSelectDesk" onchange="updateCategories('Desk')"><option value="expense">支出</option><option value="income">收入</option></select></div>
+                            <div class="col-8"><input type="number" name="amount" class="form-control border-0 bg-light" placeholder="金額" required></div>
+                            <div class="col-6"><select name="main_category" class="form-select border-0 bg-light" id="catSelectDesk"></select></div>
+                            <div class="col-6"><input type="text" name="item_name" class="form-control border-0 bg-light" placeholder="細項" required></div>
+                            <div class="col-12"><input type="text" name="note" class="form-control border-0 bg-light" placeholder="備註..."></div>
+                        </div>
+                        <button type="submit" class="btn w-100 mt-3 rounded-pill fw-bold text-white" style="background-color: var(--primary);">儲存紀錄</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <h6 class="mb-3 text-secondary fw-bold ps-1">近期明細</h6>
+                {% if transactions|length == 0 %}
+                    <div class="text-center text-muted mt-5 py-5 card card-custom"><p>本月尚無紀錄</p></div>
+                {% else %}
+                    {% for date, list in transactions | groupby('date') %}
+                    <div class="card card-custom mb-3 overflow-hidden">
+                        <div class="card-header bg-white pt-3 pb-2 border-bottom-0 d-flex justify-content-between">
+                            <span class="fw-bold text-dark">{{ date.strftime('%m/%d') }} <span class="small text-muted">{{ date.strftime('%a') }}</span></span>
+                            {% set day_total = (list | selectattr("type", "equalto", "income") | map(attribute='amount') | sum) - (list | selectattr("type", "equalto", "expense") | map(attribute='amount') | sum) %}
+                            <span class="badge bg-light text-secondary rounded-pill fw-normal">${{ day_total }}</span>
+                        </div>
+                        <div class="list-group list-group-flush">
+                            {% for t in list %}
+                            <div class="list-group-item border-0 d-flex justify-content-between align-items-center px-4 py-3">
+                                <div class="d-flex align-items-center">
+                                    <div class="rounded-circle d-flex align-items-center justify-content-center me-3 text-white shadow-sm" style="width: 42px; height: 42px; background-color: {{ '#E76F51' if t.type=='expense' else '#2A9D8F' }}">
+                                        <i class="fas fa-{{ 'utensils' if '食' in t.main_category else 'tag' }} small"></i>
+                                    </div>
+                                    <div><div class="fw-bold text-dark">{{ t.item_name }}</div><small class="text-muted">{{ t.main_category }}</small></div>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="fw-bold me-3 {{ 'text-danger' if t.type=='expense' else 'text-success' }}">{{ '-' if t.type=='expense' else '+' }}{{ t.amount }}</span>
+                                    <a href="/delete/{{ t.id }}" class="text-muted opacity-25" onclick="return confirm('刪除？');"><i class="fas fa-times"></i></a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <nav class="mobile-bottom-nav">
+        <a href="/" class="mobile-nav-item active"><i class="fas fa-home"></i>首頁</a>
+        <a href="/analysis" class="mobile-nav-item"><i class="fas fa-chart-pie"></i>分析</a>
+        <div style="width: 20%;"></div> <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
+        <a href="/settings" class="mobile-nav-item"><i class="fas fa-cog"></i>設定</a>
+    </nav>
+
+    <button class="fab-btn" data-bs-toggle="modal" data-bs-target="#mobileAddModal"><i class="fas fa-plus"></i></button>
+
+    <div class="modal fade" id="mobileAddModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0">
+                <div class="modal-header border-0"><h5 class="modal-title fw-bold">記一筆</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form method="POST" action="/">
+                        <div class="row g-3">
+                            <div class="col-12"><input type="date" name="date" class="form-control bg-light border-0 mob-date" required></div>
+                            <div class="col-12"><div class="btn-group w-100"><input type="radio" class="btn-check" name="type" id="tExp" value="expense" checked onchange="updateCategories('Mob')"><label class="btn btn-outline-danger" for="tExp">支出</label><input type="radio" class="btn-check" name="type" id="tInc" value="income" onchange="updateCategories('Mob')"><label class="btn btn-outline-success" for="tInc">收入</label></div></div>
+                            <div class="col-12"><input type="number" name="amount" class="form-control bg-light border-0 py-3 fs-3 text-center fw-bold" placeholder="$0" required></div>
+                            <div class="col-6"><select name="main_category" class="form-select bg-light border-0" id="catSelectMob"></select></div>
+                            <div class="col-6"><input type="text" name="item_name" class="form-control bg-light border-0" placeholder="細項" required></div>
+                            <div class="col-12"><textarea name="note" class="form-control bg-light border-0" placeholder="備註"></textarea></div>
+                            <div class="col-12"><button type="submit" class="btn w-100 rounded-pill fw-bold text-white py-2" style="background-color: var(--primary);">儲存</button></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const today = new Date().toISOString().split('T')[0];
+        document.querySelectorAll('input[type="date"]').forEach(el => el.value = today);
+        const expCats = ["餐飲", "交通", "娛樂", "購物", "房租", "其他"];
+        const incCats = ["薪水", "獎金", "投資", "兼職", "其他"];
+        function updateCategories(suffix) {
+            let typeVal;
+            if (suffix === 'Desk') typeVal = document.getElementById('typeSelectDesk').value;
+            else typeVal = document.getElementById('tExp').checked ? 'expense' : 'income';
+            
+            const sel = document.getElementById('catSelect' + suffix);
+            sel.innerHTML = "";
+            (typeVal === 'expense' ? expCats : incCats).forEach(c => {
+                let opt = document.createElement('option'); opt.value = c; opt.innerText = c; sel.appendChild(opt);
+            });
+        }
+        updateCategories('Desk'); updateCategories('Mob');
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
