@@ -11,28 +11,21 @@
         body { background-color: var(--secondary); font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
         .desktop-container { max-width: 1000px; margin: auto; }
         .card-custom { border: none; border-radius: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        
-        /* RWD 設定 */
         .navbar-desktop { display: flex; background-color: var(--primary); }
         .mobile-bottom-nav { display: none; }
-        
-        @media (max-width: 991px) {
-            .navbar-desktop { display: none !important; }
-            .mobile-bottom-nav { display: flex; }
-            .container { padding-left: 20px; padding-right: 20px; }
-        }
-
-        /* 底部導航 */
-        .mobile-bottom-nav {
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 65px;
-            background: white; border-top: 1px solid #eee; z-index: 1000;
-            justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
-        }
+        @media (max-width: 991px) { .navbar-desktop { display: none !important; } .mobile-bottom-nav { display: flex; } .container { padding-left: 20px; padding-right: 20px; } }
+        .mobile-bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background: white; border-top: 1px solid #eee; z-index: 1000; justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); }
         .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
         .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
         .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
+        .fab-btn { position: fixed; bottom: 85px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background-color: var(--accent); color: white; border: none; box-shadow: 0 4px 15px rgba(233, 196, 106, 0.5); font-size: 1.5rem; z-index: 999; align-items: center; justify-content: center; text-decoration: none; }
         
         .ai-card { background-color: #E8F1EE; border-left: 5px solid var(--primary); color: #4A6359; }
+        /* 鎖定狀態的 AI 卡片樣式 */
+        .ai-card-locked { background-color: #f8f9fa; border-left: 5px solid #ccc; color: #6c757d; }
+        
+        .progress-budget { height: 8px; border-radius: 4px; background-color: #e9ecef; }
+        .nav-link { color: rgba(255,255,255,0.8) !important; } .nav-link.active { color: #fff !important; font-weight: 700; border-bottom: 2px solid #fff; }
         .btn-check:checked + .btn-outline-custom { background-color: var(--primary); color: white; border-color: var(--primary); }
         .btn-outline-custom { color: var(--primary); border-color: var(--primary); }
     </style>
@@ -74,9 +67,12 @@
                             </div>
                         </div>
                         
-                        <div class="mt-4 p-3 rounded-3 text-start ai-card shadow-sm mb-3">
+                        <div class="mt-4 p-3 rounded-3 text-start shadow-sm mb-3 {{ 'ai-card' if user.is_premium else 'ai-card-locked' }}">
                             <h6 class="fw-bold"><i class="fas fa-robot me-2"></i>AI 財務顧問</h6>
                             <p class="small mb-0">{{ ai_advice }}</p>
+                            {% if not user.is_premium %}
+                                <a href="/settings" class="btn btn-sm btn-outline-secondary mt-2 w-100">去升級解鎖</a>
+                            {% endif %}
                         </div>
 
                         {% if budget_analysis %}
@@ -87,7 +83,7 @@
                                 <div class="d-flex justify-content-between small mb-1">
                                     <span class="fw-bold">{{ b.category }}</span><span class="text-muted">${{ b.spent }} / ${{ b.limit }}</span>
                                 </div>
-                                <div class="progress" style="height: 6px;">
+                                <div class="progress progress-budget">
                                     <div class="progress-bar bg-{{ b.status }}" role="progressbar" style="width: {{ b.percent }}%"></div>
                                 </div>
                             </div>
@@ -101,6 +97,7 @@
             <div class="col-lg-7">
                 <h6 class="mb-3 text-secondary fw-bold">分類明細</h6>
                 <div class="accordion shadow-sm rounded-4 overflow-hidden border-0" id="accordionExpense">
+                    {% if exp_grouped|length == 0 %} <div class="p-4 text-center bg-white text-muted">本月無支出資料</div> {% endif %}
                     {% for cat, data in exp_grouped.items() %}
                     <div class="accordion-item border-0 border-bottom">
                         <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ce{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--expense);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>
@@ -109,6 +106,7 @@
                     {% endfor %}
                 </div>
                 <div class="accordion shadow-sm rounded-4 overflow-hidden d-none border-0" id="accordionIncome">
+                    {% if inc_grouped|length == 0 %} <div class="p-4 text-center bg-white text-muted">本月無收入資料</div> {% endif %}
                     {% for cat, data in inc_grouped.items() %}
                     <div class="accordion-item border-0 border-bottom">
                         <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ci{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--income);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>
@@ -127,7 +125,7 @@
         <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
         <a href="/settings" class="mobile-nav-item"><i class="fas fa-cog"></i>設定</a>
     </nav>
-    <a href="/" class="btn rounded-circle shadow-lg d-flex d-lg-none align-items-center justify-content-center" style="position:fixed; bottom:85px; right:20px; width:56px; height:56px; background:var(--accent); color:white; font-size:1.5rem; z-index:999;"><i class="fas fa-plus"></i></a>
+    <a href="/" class="fab-btn"><i class="fas fa-plus"></i></a>
 
     <script>
         const expLabels = {{ exp_labels | tojson }};

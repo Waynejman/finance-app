@@ -9,9 +9,9 @@ import csv
 import io
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your_secret_key' # 正式上線建議改複雜一點
+app.config['SECRET_KEY'] = 'your_secret_key'
 
-# --- 資料庫連線設定 (Render / Local 自動切換) ---
+# 資料庫連線
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://")
@@ -37,6 +37,8 @@ class User(UserMixin, db.Model):
     display_name = db.Column(db.String(50)) 
     bio = db.Column(db.String(200))
     fire_target = db.Column(db.Integer, default=10000000)
+    # ★ 新增：是否為付費會員
+    is_premium = db.Column(db.Boolean, default=False) 
     
     transactions = db.relationship('Transaction', backref='owner', lazy=True)
     subscriptions = db.relationship('Subscription', backref='owner', lazy=True)
@@ -104,7 +106,6 @@ def init_achievements():
     except:
         pass
 
-# 初始化資料庫
 with app.app_context():
     db.create_all()
     init_achievements()
@@ -134,7 +135,8 @@ def register():
         if User.query.filter_by(username=username).first():
             flash('帳號已存在！')
             return redirect(url_for('register'))
-        new_user = User(username=username, display_name=username, bio="新手理財中")
+        # 預設 is_premium=False (免費版)
+        new_user = User(username=username, display_name=username, bio="新手理財中", is_premium=False)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
@@ -180,7 +182,6 @@ def index():
         check_achievements(current_user, transaction=new_trans)
         return redirect(url_for('index'))
 
-    # ★ 日期篩選修復 (兼容 Postgres)
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     try:
         m_year, m_month = map(int, current_month.split('-'))
@@ -199,7 +200,6 @@ def index():
     all_expense = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='expense').scalar() or 0
     net_worth = all_income - all_expense
     
-    # ★ 除以零防呆
     fire_progress = 0
     if current_user.fire_target > 0:
         fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
@@ -210,7 +210,6 @@ def index():
 @app.route('/analysis')
 @login_required
 def analysis():
-    # ★ 日期篩選修復 (兼容 Postgres)
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     try:
         m_year, m_month = map(int, current_month.split('-'))
@@ -243,30 +242,29 @@ def analysis():
 
     user_budgets = Budget.query.filter_by(user_id=current_user.id).all()
     budget_analysis = []
-    
     for b in user_budgets:
         spent = exp_grouped.get(b.category, {'total': 0})['total']
-        # ★ 除以零防呆
-        if b.amount > 0:
-            percent = min(100, int((spent / b.amount) * 100))
-        else:
-            percent = 100 if spent > 0 else 0
-            
+        if b.amount > 0: percent = min(100, int((spent / b.amount) * 100))
+        else: percent = 100 if spent > 0 else 0
         status = "danger" if percent >= 100 else ("warning" if percent >= 80 else "success")
         budget_analysis.append({"category": b.category, "limit": b.amount, "spent": spent, "percent": percent, "status": status})
 
-    top_cat = max(exp_grouped, key=lambda k: exp_grouped[k]['total']) if exp_grouped else None
-    
-    # ★ AI 建議邏輯 & 除以零防呆
-    ai_advice = "目前收支狀況良好。"
-    if total_inc > 0:
-        rate = (total_inc - total_exp) / total_inc
-        if rate < 0: ai_advice = f"本月已透支！最大支出為「{top_cat}」，請注意。"
-        elif rate < 0.2: ai_advice = "儲蓄率偏低，建議設定預算來控制花費。"
-        else: ai_advice = "儲蓄率健康！可以考慮將結餘進行投資。"
-    elif total_exp > 0:
-        ai_advice = "本月尚無收入，但已有支出，請注意現金流。"
-    
+    # ★ 付費版功能檢查：AI 顧問
+    ai_advice = ""
+    if current_user.is_premium:
+        top_cat = max(exp_grouped, key=lambda k: exp_grouped[k]['total']) if exp_grouped else None
+        if total_inc > 0:
+            rate = (total_inc - total_exp) / total_inc
+            if rate < 0: ai_advice = f"本月已透支！最大支出為「{top_cat}」，請注意。"
+            elif rate < 0.2: ai_advice = "儲蓄率偏低，建議設定預算來控制花費。"
+            else: ai_advice = "儲蓄率健康！可以考慮將結餘進行投資。"
+        elif total_exp > 0:
+            ai_advice = "本月尚無收入，但已有支出，請注意現金流。"
+        else:
+            ai_advice = "目前沒有資料，快去記一筆吧！"
+    else:
+        ai_advice = "🔒 此為付費功能。升級會員後，AI 將根據您的數據提供個人化理財建議。"
+
     return render_template('analysis.html', 
                            exp_grouped=exp_grouped, inc_grouped=inc_grouped,
                            exp_labels=list(exp_grouped.keys()), exp_values=[d['total'] for d in exp_grouped.values()],
@@ -307,8 +305,7 @@ def update_budget():
                 existing = Budget.query.filter_by(user_id=current_user.id, category=cat).first()
                 if existing: existing.amount = amount
                 else: db.session.add(Budget(category=cat, amount=amount, owner=current_user))
-            except ValueError:
-                pass
+            except ValueError: pass
     db.session.commit()
     check_achievements(current_user, budget=True)
     flash('預算設定已更新！')
@@ -319,10 +316,8 @@ def update_budget():
 def update_profile():
     current_user.display_name = request.form['display_name']
     current_user.bio = request.form['bio']
-    try:
-        current_user.fire_target = int(request.form['fire_target'])
-    except ValueError:
-        pass
+    try: current_user.fire_target = int(request.form['fire_target'])
+    except ValueError: pass
     db.session.commit()
     flash('設定已更新！')
     return redirect(url_for('settings'))
@@ -351,9 +346,14 @@ def submit_feedback():
         flash('感謝您的回饋！我們會盡快處理。')
     return redirect(url_for('settings'))
 
+# ★ 付費版功能檢查：匯出 CSV
 @app.route('/export_csv')
 @login_required
 def export_csv():
+    if not current_user.is_premium:
+        flash('🔒 匯出報表為付費功能，請升級會員。')
+        return redirect(url_for('settings'))
+
     all_trans = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
     output = io.StringIO()
     output.write(u'\ufeff')
@@ -363,6 +363,15 @@ def export_csv():
         t_type_zh = "支出" if t.type == "expense" else "收入"
         writer.writerow([t.date.strftime('%Y-%m-%d'), t_type_zh, t.main_category, t.item_name, t.amount, t.note])
     return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=finance_report.csv"})
+
+# ★ 新增：模擬升級會員路由
+@app.route('/upgrade_membership')
+@login_required
+def upgrade_membership():
+    current_user.is_premium = True
+    db.session.commit()
+    flash('🎉 恭喜！您已升級為付費會員，所有功能已解鎖。')
+    return redirect(url_for('settings'))
 
 @app.route('/settings')
 @login_required

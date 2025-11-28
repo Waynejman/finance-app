@@ -8,29 +8,21 @@
     <style>
         :root { --primary: #86A697; --secondary: #F4F7F6; --text-dark: #2C3E50; --accent: #E9C46A; }
         body { background-color: var(--secondary); font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
-        
-        /* 容器與卡片 */
         .desktop-container { max-width: 1000px; margin: auto; }
         .card-custom { border: none; border-radius: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         .hover-shadow:hover { box-shadow: 0 5px 20px rgba(134, 166, 151, 0.2) !important; transition: 0.3s; }
-        
-        /* 成就與顏色 */
         .achievement-locked { filter: grayscale(100%); opacity: 0.4; }
         .text-primary-custom { color: var(--primary); }
-
-        /* RWD 導航設定 */
+        
         .navbar-desktop { display: flex; background-color: var(--primary); }
         .mobile-bottom-nav { display: none; }
         .fab-btn { display: none; }
-
         @media (max-width: 991px) {
             .navbar-desktop { display: none !important; }
             .mobile-bottom-nav { display: flex; }
             .fab-btn { display: flex; }
             .container { padding-left: 20px; padding-right: 20px; }
         }
-        
-        /* 手機版底部導航 */
         .mobile-bottom-nav {
             position: fixed; bottom: 0; left: 0; width: 100%; height: 65px;
             background: white; border-top: 1px solid #eee; z-index: 1000;
@@ -39,8 +31,6 @@
         .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
         .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
         .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
-        
-        /* 手機版懸浮按鈕 (FAB) */
         .fab-btn {
             position: fixed; bottom: 85px; right: 20px;
             width: 56px; height: 56px; border-radius: 50%;
@@ -48,8 +38,6 @@
             box-shadow: 0 4px 15px rgba(233, 196, 106, 0.5); font-size: 1.5rem;
             z-index: 999; align-items: center; justify-content: center; text-decoration: none;
         }
-        
-        /* Navbar 連結樣式 */
         .nav-link { color: rgba(255,255,255,0.8) !important; }
         .nav-link.active { color: #fff !important; font-weight: 700; border-bottom: 2px solid #fff; }
     </style>
@@ -66,6 +54,11 @@
             </div>
             <div class="text-white d-flex align-items-center">
                 <span class="fw-bold me-2">{{ user.display_name }}</span>
+                {% if user.is_premium %}
+                    <span class="badge bg-warning text-dark me-2 rounded-pill"><i class="fas fa-crown"></i> PRO</span>
+                {% else %}
+                    <span class="badge bg-secondary me-2 rounded-pill">FREE</span>
+                {% endif %}
                 <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=E9C46A&color=fff&rounded=true&bold=true" width="35" height="35" class="rounded-circle border border-2 border-white">
             </div>
         </div>
@@ -89,7 +82,19 @@
                     <div class="card-body p-4 text-center">
                         <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=86A697&color=fff&size=100&rounded=true" class="mb-3 shadow-sm rounded-circle">
                         <h4 class="mb-1 fw-bold text-dark">{{ user.display_name }} <i class="fas fa-pen text-muted small ms-2" style="font-size: 0.6em;"></i></h4>
-                        <p class="text-muted small mb-3">{{ user.bio }}</p>
+                        <p class="text-muted small mb-2">{{ user.bio }}</p>
+                        
+                        <div class="mb-3">
+                            {% if user.is_premium %}
+                                <span class="badge bg-warning text-dark rounded-pill px-3 py-2"><i class="fas fa-crown me-1"></i> 付費會員 (Premium)</span>
+                            {% else %}
+                                <span class="badge bg-secondary rounded-pill px-3 py-2">免費會員 (Free)</span>
+                                <div class="mt-2">
+                                    <a href="/upgrade_membership" class="btn btn-sm btn-outline-warning rounded-pill" onclick="return confirm('確定要升級為付費會員嗎？(模擬扣款)')">升級解鎖所有功能</a>
+                                </div>
+                            {% endif %}
+                        </div>
+
                         <div class="bg-light rounded-3 p-2 d-inline-block">
                             <small class="text-muted d-block">FIRE 目標</small>
                             <span class="fw-bold" style="color:var(--primary);">${{ user.fire_target // 10000 }}萬</span>
@@ -115,26 +120,16 @@
             </div>
 
             <div class="col-lg-8">
-                
                 <div class="card card-custom mb-4">
                     <div class="card-header bg-white border-0 pt-3"><h6 class="fw-bold text-secondary"><i class="fas fa-shield-alt text-danger me-2"></i>每月預算上限</h6></div>
                     <div class="card-body">
                         <form action="/update_budget" method="POST">
                             <div class="row g-3">
                                 {% for cat in ["餐飲", "交通", "娛樂", "購物", "房租", "其他"] %}
-                                <div class="col-6 col-md-4">
-                                    <label class="small text-muted fw-bold mb-1">{{ cat }}</label>
-                                    <div class="input-group input-group-sm">
-                                        <span class="input-group-text bg-light border-0">$</span>
-                                        <input type="number" name="budget_{{ cat }}" class="form-control bg-light border-0" 
-                                               placeholder="無" value="{{ current_budgets.get(cat, '') }}">
-                                    </div>
-                                </div>
+                                <div class="col-6 col-md-4"><label class="small text-muted fw-bold mb-1">{{ cat }}</label><div class="input-group input-group-sm"><span class="input-group-text bg-light border-0">$</span><input type="number" name="budget_{{ cat }}" class="form-control bg-light border-0" placeholder="無" value="{{ current_budgets.get(cat, '') }}"></div></div>
                                 {% endfor %}
                             </div>
-                            <div class="text-end mt-3">
-                                <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-3">儲存預算</button>
-                            </div>
+                            <div class="text-end mt-3"><button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-3">儲存預算</button></div>
                         </form>
                     </div>
                 </div>
@@ -152,7 +147,7 @@
                                 {% for sub in user.subscriptions %}
                                 <div class="list-group-item border-0 d-flex justify-content-between align-items-center px-4 py-3">
                                     <div class="d-flex align-items-center">
-                                        <div class="rounded p-2 me-3 bg-light text-success"><i class="fab fa-spotify fa-lg"></i></div>
+                                        <div class="rounded p-2 me-3 bg-light text-secondary"><i class="fas fa-receipt fa-lg"></i></div>
                                         <div>
                                             <div class="fw-bold">{{ sub.name }}</div>
                                             <small class="text-muted">每月扣款</small>
@@ -170,18 +165,19 @@
                 </div>
 
                 <div class="list-group card-custom border-0 mb-4 overflow-hidden">
-                    <a href="/export_csv" class="list-group-item list-group-item-action border-0 py-3 px-4">
-                        <i class="fas fa-file-csv text-success me-3"></i> 匯出報表 (CSV)
+                    <a href="/export_csv" class="list-group-item list-group-item-action border-0 py-3 px-4 d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-file-csv text-success me-3"></i> 匯出報表 (CSV)</span>
+                        {% if not user.is_premium %}
+                            <i class="fas fa-lock text-muted" title="付費功能"></i>
+                        {% endif %}
                     </a>
                     
                     <a href="#" class="list-group-item list-group-item-action border-0 py-3 px-4" data-bs-toggle="modal" data-bs-target="#pwModal">
                         <i class="fas fa-key text-warning me-3"></i> 修改密碼
                     </a>
-
                     <a href="#" class="list-group-item list-group-item-action border-0 py-3 px-4" data-bs-toggle="modal" data-bs-target="#feedbackModal">
                         <i class="fas fa-headset text-primary me-3"></i> 聯絡客服
                     </a>
-
                     <a href="/logout" class="list-group-item list-group-item-action border-0 py-3 px-4 text-danger">
                         <i class="fas fa-sign-out-alt me-3"></i> 登出帳號
                     </a>
@@ -193,98 +189,35 @@
     <nav class="mobile-bottom-nav">
         <a href="/" class="mobile-nav-item"><i class="fas fa-home"></i>首頁</a>
         <a href="/analysis" class="mobile-nav-item"><i class="fas fa-chart-pie"></i>分析</a>
-        <div style="width: 20%;"></div> <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
+        <div style="width: 20%;"></div>
+        <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
         <a href="/settings" class="mobile-nav-item active"><i class="fas fa-cog"></i>設定</a>
     </nav>
     <a href="/" class="fab-btn"><i class="fas fa-plus"></i></a>
 
-    <div class="modal fade" id="profileModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0">
-                <form action="/update_profile" method="POST">
-                    <div class="modal-header border-0"><h5 class="modal-title fw-bold">編輯個人資料</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">暱稱</label>
-                            <input type="text" name="display_name" class="form-control bg-light border-0" value="{{ user.display_name }}" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">簡介</label>
-                            <textarea name="bio" class="form-control bg-light border-0">{{ user.bio }}</textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">FIRE 目標金額 ($)</label>
-                            <input type="number" name="fire_target" class="form-control bg-light border-0" value="{{ user.fire_target }}">
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0">
-                        <button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">儲存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="subModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0">
-                <form action="/add_subscription" method="POST">
-                    <div class="modal-header border-0"><h5 class="modal-title fw-bold">新增訂閱</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">服務名稱</label>
-                            <input type="text" name="name" class="form-control bg-light border-0" placeholder="例如: Netflix" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">每月金額</label>
-                            <input type="number" name="amount" class="form-control bg-light border-0" required>
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0">
-                        <button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">新增</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal fade" id="pwModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content rounded-4 border-0">
-                <form action="/change_password" method="POST">
-                    <div class="modal-header border-0"><h5 class="modal-title fw-bold">修改密碼</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">舊密碼</label>
-                            <input type="password" name="old_password" class="form-control bg-light border-0" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="fw-bold small text-muted">新密碼</label>
-                            <input type="password" name="new_password" class="form-control bg-light border-0" required>
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0">
-                        <button type="submit" class="btn btn-warning rounded-pill px-4 text-white">確認修改</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
+    <div class="modal fade" id="profileModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content rounded-4 border-0"><form action="/update_profile" method="POST"><div class="modal-header border-0"><h5 class="modal-title fw-bold">編輯個人資料</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label class="fw-bold small text-muted">暱稱</label><input type="text" name="display_name" class="form-control bg-light border-0" value="{{ user.display_name }}" required></div><div class="mb-3"><label class="fw-bold small text-muted">簡介</label><textarea name="bio" class="form-control bg-light border-0">{{ user.bio }}</textarea></div><div class="mb-3"><label class="fw-bold small text-muted">FIRE 目標金額 ($)</label><input type="number" name="fire_target" class="form-control bg-light border-0" value="{{ user.fire_target }}"></div></div><div class="modal-footer border-0"><button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">儲存</button></div></form></div></div></div>
+    
+    <div class="modal fade" id="subModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content rounded-4 border-0"><form action="/add_subscription" method="POST"><div class="modal-header border-0"><h5 class="modal-title fw-bold">新增訂閱</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label class="fw-bold small text-muted">服務名稱</label><input type="text" name="name" class="form-control bg-light border-0" placeholder="例如: Netflix" required></div><div class="mb-3"><label class="fw-bold small text-muted">每月金額</label><input type="number" name="amount" class="form-control bg-light border-0" required></div></div><div class="modal-footer border-0"><button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">新增</button></div></form></div></div></div>
+    
+    <div class="modal fade" id="pwModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content rounded-4 border-0"><form action="/change_password" method="POST"><div class="modal-header border-0"><h5 class="modal-title fw-bold">修改密碼</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label class="fw-bold small text-muted">舊密碼</label><input type="password" name="old_password" class="form-control bg-light border-0" required></div><div class="mb-3"><label class="fw-bold small text-muted">新密碼</label><input type="password" name="new_password" class="form-control bg-light border-0" required></div></div><div class="modal-footer border-0"><button type="submit" class="btn btn-warning rounded-pill px-4 text-white">確認修改</button></div></form></div></div></div>
+    
     <div class="modal fade" id="feedbackModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content rounded-4 border-0">
                 <form action="/submit_feedback" method="POST">
                     <div class="modal-header border-0"><h5 class="modal-title fw-bold">聯絡客服</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
+                        <div class="mb-4 p-3 bg-light rounded-3">
+                            <p class="mb-1 small fw-bold text-muted">您可以透過以下方式聯繫我們：</p>
+                            <div class="d-flex align-items-center mb-1"><i class="fas fa-envelope me-2 text-primary"></i> <a href="mailto:lewayone@gmail.com" class="text-decoration-none text-dark">lewayone@gmail.com</a></div>
+                            <div class="d-flex align-items-center"><i class="fas fa-phone me-2 text-success"></i> <a href="tel:0968744955" class="text-decoration-none text-dark">0968-744-955</a></div>
+                        </div>
                         <div class="mb-3">
-                            <label class="fw-bold small text-muted">您的寶貴意見或問題</label>
-                            <textarea name="message" class="form-control bg-light border-0" rows="5" placeholder="請詳細描述您遇到的問題..." required></textarea>
+                            <label class="fw-bold small text-muted">或直接留言</label>
+                            <textarea name="message" class="form-control bg-light border-0" rows="4" placeholder="請描述您的問題..." required></textarea>
                         </div>
                     </div>
-                    <div class="modal-footer border-0">
-                        <button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">送出訊息</button>
-                    </div>
+                    <div class="modal-footer border-0"><button type="submit" class="btn btn-primary rounded-pill px-4" style="background-color: var(--primary); border:none;">送出訊息</button></div>
                 </form>
             </div>
         </div>
