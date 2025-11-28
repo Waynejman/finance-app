@@ -1,9 +1,11 @@
 import os
+import time
+import urllib.parse
+import hashlib
 from flask import Flask, render_template, request, redirect, url_for, flash, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func
 import csv
 import io
@@ -11,11 +13,9 @@ import io
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 
-# 資料庫連線
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://")
-
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///finance.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -24,6 +24,12 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = "請先登入以存取該頁面"
 login_manager.login_message_category = "warning"
+
+# 綠界設定
+ECPAY_MERCHANT_ID = '2000132'
+ECPAY_HASH_KEY = '5294y06JbISpM5x9'
+ECPAY_HASH_IV = 'v77hoKGq4kWxNNIS'
+ECPAY_ACTION_URL = 'https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5'
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -37,18 +43,29 @@ class User(UserMixin, db.Model):
     display_name = db.Column(db.String(50)) 
     bio = db.Column(db.String(200))
     fire_target = db.Column(db.Integer, default=10000000)
-    # ★ 新增：是否為付費會員
     is_premium = db.Column(db.Boolean, default=False) 
     
     transactions = db.relationship('Transaction', backref='owner', lazy=True)
     subscriptions = db.relationship('Subscription', backref='owner', lazy=True)
     achievements = db.relationship('UserAchievement', backref='owner', lazy=True)
     budgets = db.relationship('Budget', backref='owner', lazy=True)
+    orders = db.relationship('Order', backref='owner', lazy=True) # 關聯訂單
 
     def set_password(self, password):
+        from werkzeug.security import generate_password_hash
         self.password_hash = generate_password_hash(password)
     def check_password(self, password):
+        from werkzeug.security import check_password_hash
         return check_password_hash(self.password_hash, password)
+
+# ★ 新增：訂單紀錄 (用於恢復購買)
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    trade_no = db.Column(db.String(50), unique=True, nullable=False) # 綠界訂單編號
+    amount = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default="Pending") # Pending, Paid
+    date_created = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -90,6 +107,18 @@ class Feedback(db.Model):
     message = db.Column(db.String(500), nullable=False)
     date_sent = db.Column(db.DateTime, default=datetime.utcnow)
 
+def get_mac_value(params):
+    sorted_params = sorted(params.items())
+    query_string = '&'.join([f'{k}={v}' for k, v in sorted_params])
+    raw = f'HashKey={ECPAY_HASH_KEY}&{query_string}&HashIV={ECPAY_HASH_IV}'
+    encoded = urllib.parse.quote_plus(raw).lower()
+    encoded = encoded.replace('%21', '!').replace('%28', '(').replace('%29', ')')
+    encoded = encoded.replace('%2a', '*').replace('%2d', '-').replace('%2e', '.')
+    encoded = encoded.replace('%5f', '_')
+    m = hashlib.md5()
+    m.update(encoded.encode('utf-8'))
+    return m.hexdigest().upper()
+
 def init_achievements():
     try:
         default_achievements = [
@@ -103,8 +132,7 @@ def init_achievements():
             if not Achievement.query.filter_by(name=ach['name']).first():
                 db.session.add(Achievement(name=ach['name'], description=ach['desc'], icon=ach['icon']))
         db.session.commit()
-    except:
-        pass
+    except: pass
 
 with app.app_context():
     db.create_all()
@@ -125,7 +153,93 @@ def grant_achievement(user, ach_name, earned_ids):
         db.session.commit()
         flash(f"🏆 解鎖成就：{ach_name}！")
 
-# --- 路由 ---
+# --- 金流與會員路由 ---
+
+@app.route('/create_ecpay_order', methods=['POST'])
+@login_required
+def create_ecpay_order():
+    order_id = f"FinanceApp{int(time.time())}" 
+    order_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    amount = 100
+    
+    # 1. 建立本地訂單紀錄 (狀態: Pending)
+    new_order = Order(trade_no=order_id, amount=amount, user_id=current_user.id, status="Pending")
+    db.session.add(new_order)
+    db.session.commit()
+
+    # 2. 建立綠界參數
+    params = {
+        'MerchantID': ECPAY_MERCHANT_ID,
+        'MerchantTradeNo': order_id,
+        'MerchantTradeDate': order_time,
+        'PaymentType': 'aio',
+        'TotalAmount': str(amount),
+        'TradeDesc': 'Upgrade to Premium',
+        'ItemName': '記帳管家-付費會員',
+        'ReturnURL': 'https://www.example.com', 
+        'ClientBackURL': url_for('ecpay_return', order_id=order_id, _external=True), # 帶上 order_id
+        'ChoosePayment': 'ALL',
+        'EncryptType': '1',
+    }
+    
+    params['CheckMacValue'] = get_mac_value(params)
+    
+    form_html = f'''
+    <form id="ecpay_form" action="{ECPAY_ACTION_URL}" method="POST">
+        {''.join([f'<input type="hidden" name="{k}" value="{v}">' for k, v in params.items()])}
+    </form>
+    <script>document.getElementById("ecpay_form").submit();</script>
+    '''
+    return form_html
+
+@app.route('/ecpay_return')
+@login_required
+def ecpay_return():
+    # 取得網址上的 order_id
+    order_id = request.args.get('order_id')
+    
+    # 1. 找尋該訂單
+    order = Order.query.filter_by(trade_no=order_id).first()
+    
+    if order and order.user_id == current_user.id:
+        # 2. 更新訂單狀態為 Paid
+        order.status = "Paid"
+        # 3. 升級使用者
+        current_user.is_premium = True
+        db.session.commit()
+        flash('🎉 付款成功！感謝您的支持，所有功能已解鎖。')
+    else:
+        flash('⚠️ 訂單驗證失敗。')
+        
+    return redirect(url_for('settings'))
+
+# ★ 新增：取消付費會員 (降級)
+@app.route('/cancel_premium')
+@login_required
+def cancel_premium():
+    if current_user.is_premium:
+        current_user.is_premium = False
+        db.session.commit()
+        flash('⚠️ 您已取消付費會員資格，功能將恢復為免費版限制。')
+    return redirect(url_for('settings'))
+
+# ★ 新增：恢復購買 (檢查是否有歷史付款紀錄)
+@app.route('/restore_purchase')
+@login_required
+def restore_purchase():
+    # 搜尋該使用者是否有任何狀態為 'Paid' 的訂單
+    paid_order = Order.query.filter_by(user_id=current_user.id, status="Paid").first()
+    
+    if paid_order:
+        current_user.is_premium = True
+        db.session.commit()
+        flash('♻️ 恢復成功！系統查詢到您有歷史付款紀錄，權益已恢復。')
+    else:
+        flash('❌ 恢復失敗。系統未找到您的付款紀錄，請確認是否購買過。')
+        
+    return redirect(url_for('settings'))
+
+# --- 其他路由保持不變 (Analysis, Index, Settings...) ---
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -135,7 +249,6 @@ def register():
         if User.query.filter_by(username=username).first():
             flash('帳號已存在！')
             return redirect(url_for('register'))
-        # 預設 is_premium=False (免費版)
         new_user = User(username=username, display_name=username, bio="新手理財中", is_premium=False)
         new_user.set_password(password)
         db.session.add(new_user)
@@ -157,9 +270,7 @@ def login():
 
 @app.route('/logout')
 @login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
+def logout(): logout_user(); return redirect(url_for('login'))
 
 @app.route('/', methods=['GET', 'POST'])
 @login_required
@@ -172,58 +283,33 @@ def index():
         note = request.form['note']
         date_str = request.form.get('date')
         t_date = datetime.strptime(date_str, '%Y-%m-%d') if date_str else datetime.now()
-
-        new_trans = Transaction(
-            amount=amount, type=t_type, main_category=main_cat, 
-            item_name=item, note=note, date=t_date, owner=current_user
-        )
+        new_trans = Transaction(amount=amount, type=t_type, main_category=main_cat, item_name=item, note=note, date=t_date, owner=current_user)
         db.session.add(new_trans)
         db.session.commit()
         check_achievements(current_user, transaction=new_trans)
         return redirect(url_for('index'))
 
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
-    try:
-        m_year, m_month = map(int, current_month.split('-'))
-    except:
-        today = datetime.now()
-        m_year, m_month = today.year, today.month
-        current_month = today.strftime('%Y-%m')
+    try: m_year, m_month = map(int, current_month.split('-'))
+    except: today = datetime.now(); m_year, m_month = today.year, today.month; current_month = today.strftime('%Y-%m')
 
-    transactions = Transaction.query.filter(
-        Transaction.user_id == current_user.id,
-        func.extract('year', Transaction.date) == m_year,
-        func.extract('month', Transaction.date) == m_month
-    ).order_by(Transaction.date.desc()).all()
-
+    transactions = Transaction.query.filter(Transaction.user_id == current_user.id, func.extract('year', Transaction.date) == m_year, func.extract('month', Transaction.date) == m_month).order_by(Transaction.date.desc()).all()
     all_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='income').scalar() or 0
     all_expense = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='expense').scalar() or 0
     net_worth = all_income - all_expense
-    
     fire_progress = 0
-    if current_user.fire_target > 0:
-        fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
+    if current_user.fire_target > 0: fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
 
-    return render_template('index.html', transactions=transactions, user=current_user, 
-                           current_month=current_month, net_worth=net_worth, fire_progress=fire_progress)
+    return render_template('index.html', transactions=transactions, user=current_user, current_month=current_month, net_worth=net_worth, fire_progress=fire_progress)
 
 @app.route('/analysis')
 @login_required
 def analysis():
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
-    try:
-        m_year, m_month = map(int, current_month.split('-'))
-    except:
-        today = datetime.now()
-        m_year, m_month = today.year, today.month
-        current_month = today.strftime('%Y-%m')
+    try: m_year, m_month = map(int, current_month.split('-'))
+    except: today = datetime.now(); m_year, m_month = today.year, today.month; current_month = today.strftime('%Y-%m')
 
-    monthly_data = Transaction.query.filter(
-        Transaction.user_id == current_user.id,
-        func.extract('year', Transaction.date) == m_year,
-        func.extract('month', Transaction.date) == m_month
-    ).order_by(Transaction.amount.desc()).all()
-
+    monthly_data = Transaction.query.filter(Transaction.user_id == current_user.id, func.extract('year', Transaction.date) == m_year, func.extract('month', Transaction.date) == m_month).order_by(Transaction.amount.desc()).all()
     expenses = [t for t in monthly_data if t.type == 'expense']
     incomes = [t for t in monthly_data if t.type == 'income']
     total_exp = sum(t.amount for t in expenses)
@@ -242,14 +328,15 @@ def analysis():
 
     user_budgets = Budget.query.filter_by(user_id=current_user.id).all()
     budget_analysis = []
-    for b in user_budgets:
-        spent = exp_grouped.get(b.category, {'total': 0})['total']
-        if b.amount > 0: percent = min(100, int((spent / b.amount) * 100))
-        else: percent = 100 if spent > 0 else 0
-        status = "danger" if percent >= 100 else ("warning" if percent >= 80 else "success")
-        budget_analysis.append({"category": b.category, "limit": b.amount, "spent": spent, "percent": percent, "status": status})
+    
+    if current_user.is_premium:
+        for b in user_budgets:
+            spent = exp_grouped.get(b.category, {'total': 0})['total']
+            if b.amount > 0: percent = min(100, int((spent / b.amount) * 100))
+            else: percent = 100 if spent > 0 else 0
+            status = "danger" if percent >= 100 else ("warning" if percent >= 80 else "success")
+            budget_analysis.append({"category": b.category, "limit": b.amount, "spent": spent, "percent": percent, "status": status})
 
-    # ★ 付費版功能檢查：AI 顧問
     ai_advice = ""
     if current_user.is_premium:
         top_cat = max(exp_grouped, key=lambda k: exp_grouped[k]['total']) if exp_grouped else None
@@ -258,12 +345,10 @@ def analysis():
             if rate < 0: ai_advice = f"本月已透支！最大支出為「{top_cat}」，請注意。"
             elif rate < 0.2: ai_advice = "儲蓄率偏低，建議設定預算來控制花費。"
             else: ai_advice = "儲蓄率健康！可以考慮將結餘進行投資。"
-        elif total_exp > 0:
-            ai_advice = "本月尚無收入，但已有支出，請注意現金流。"
-        else:
-            ai_advice = "目前沒有資料，快去記一筆吧！"
+        elif total_exp > 0: ai_advice = "本月尚無收入，但已有支出，請注意現金流。"
+        else: ai_advice = "目前沒有資料。"
     else:
-        ai_advice = "🔒 此為付費功能。升級會員後，AI 將根據您的數據提供個人化理財建議。"
+        ai_advice = "🔒 [付費限定] 升級會員以解鎖 AI 財務診斷與預算監控功能。"
 
     return render_template('analysis.html', 
                            exp_grouped=exp_grouped, inc_grouped=inc_grouped,
@@ -276,11 +361,13 @@ def analysis():
 @app.route('/add_subscription', methods=['POST'])
 @login_required
 def add_subscription():
+    if not current_user.is_premium:
+        flash('🔒 訂閱管理為付費功能，請先升級。')
+        return redirect(url_for('settings'))
     name = request.form['name']
     amount = int(request.form['amount'])
     sub = Subscription(name=name, amount=amount, owner=current_user)
-    db.session.add(sub)
-    db.session.commit()
+    db.session.add(sub); db.session.commit()
     check_achievements(current_user, subscription=sub)
     return redirect(url_for('settings'))
 
@@ -288,14 +375,15 @@ def add_subscription():
 @login_required
 def delete_subscription(id):
     sub = Subscription.query.get_or_404(id)
-    if sub.user_id == current_user.id:
-        db.session.delete(sub)
-        db.session.commit()
+    if sub.user_id == current_user.id: db.session.delete(sub); db.session.commit()
     return redirect(url_for('settings'))
 
 @app.route('/update_budget', methods=['POST'])
 @login_required
 def update_budget():
+    if not current_user.is_premium:
+        flash('🔒 預算設定為付費功能，請先升級。')
+        return redirect(url_for('settings'))
     categories = ["餐飲", "交通", "娛樂", "購物", "房租", "其他"]
     for cat in categories:
         amount_str = request.form.get(f'budget_{cat}')
@@ -332,7 +420,7 @@ def change_password():
     else:
         current_user.set_password(new_pw)
         db.session.commit()
-        flash('密碼修改成功！下次請用新密碼登入。')
+        flash('密碼修改成功！')
     return redirect(url_for('settings'))
 
 @app.route('/submit_feedback', methods=['POST'])
@@ -341,37 +429,23 @@ def submit_feedback():
     message = request.form['message']
     if message:
         fb = Feedback(user_id=current_user.id, message=message)
-        db.session.add(fb)
-        db.session.commit()
-        flash('感謝您的回饋！我們會盡快處理。')
+        db.session.add(fb); db.session.commit()
+        flash('感謝您的回饋！')
     return redirect(url_for('settings'))
 
-# ★ 付費版功能檢查：匯出 CSV
 @app.route('/export_csv')
 @login_required
 def export_csv():
     if not current_user.is_premium:
-        flash('🔒 匯出報表為付費功能，請升級會員。')
+        flash('🔒 匯出報表為付費功能，請先升級。')
         return redirect(url_for('settings'))
-
     all_trans = Transaction.query.filter_by(user_id=current_user.id).order_by(Transaction.date.desc()).all()
-    output = io.StringIO()
-    output.write(u'\ufeff')
-    writer = csv.writer(output)
+    output = io.StringIO(); output.write(u'\ufeff'); writer = csv.writer(output)
     writer.writerow(['日期', '收支類型', '主分類', '細項', '金額', '備註']) 
     for t in all_trans:
         t_type_zh = "支出" if t.type == "expense" else "收入"
         writer.writerow([t.date.strftime('%Y-%m-%d'), t_type_zh, t.main_category, t.item_name, t.amount, t.note])
     return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition": "attachment; filename=finance_report.csv"})
-
-# ★ 新增：模擬升級會員路由
-@app.route('/upgrade_membership')
-@login_required
-def upgrade_membership():
-    current_user.is_premium = True
-    db.session.commit()
-    flash('🎉 恭喜！您已升級為付費會員，所有功能已解鎖。')
-    return redirect(url_for('settings'))
 
 @app.route('/settings')
 @login_required
@@ -386,9 +460,7 @@ def settings():
 @login_required
 def delete(id):
     t = Transaction.query.get_or_404(id)
-    if t.user_id == current_user.id:
-        db.session.delete(t)
-        db.session.commit()
+    if t.user_id == current_user.id: db.session.delete(t); db.session.commit()
     return redirect(request.referrer or url_for('index'))
 
 @app.errorhandler(404)
