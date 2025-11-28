@@ -13,9 +13,11 @@ import io
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 
+# --- 資料庫連線 (Render 自動切換) ---
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://")
+
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///finance.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -25,7 +27,7 @@ login_manager.login_view = 'login'
 login_manager.login_message = "請先登入以存取該頁面"
 login_manager.login_message_category = "warning"
 
-# 綠界設定
+# --- 綠界測試環境設定 ---
 ECPAY_MERCHANT_ID = '2000132'
 ECPAY_HASH_KEY = '5294y06JbISpM5x9'
 ECPAY_HASH_IV = 'v77hoKGq4kWxNNIS'
@@ -49,7 +51,7 @@ class User(UserMixin, db.Model):
     subscriptions = db.relationship('Subscription', backref='owner', lazy=True)
     achievements = db.relationship('UserAchievement', backref='owner', lazy=True)
     budgets = db.relationship('Budget', backref='owner', lazy=True)
-    orders = db.relationship('Order', backref='owner', lazy=True) # 關聯訂單
+    orders = db.relationship('Order', backref='owner', lazy=True)
 
     def set_password(self, password):
         from werkzeug.security import generate_password_hash
@@ -58,10 +60,9 @@ class User(UserMixin, db.Model):
         from werkzeug.security import check_password_hash
         return check_password_hash(self.password_hash, password)
 
-# ★ 新增：訂單紀錄 (用於恢復購買)
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    trade_no = db.Column(db.String(50), unique=True, nullable=False) # 綠界訂單編號
+    trade_no = db.Column(db.String(50), unique=True, nullable=False)
     amount = db.Column(db.Integer, nullable=False)
     status = db.Column(db.String(20), default="Pending") # Pending, Paid
     date_created = db.Column(db.DateTime, default=datetime.utcnow)
@@ -107,6 +108,7 @@ class Feedback(db.Model):
     message = db.Column(db.String(500), nullable=False)
     date_sent = db.Column(db.DateTime, default=datetime.utcnow)
 
+# --- 綠界加密函式 ---
 def get_mac_value(params):
     sorted_params = sorted(params.items())
     query_string = '&'.join([f'{k}={v}' for k, v in sorted_params])
@@ -134,7 +136,9 @@ def init_achievements():
         db.session.commit()
     except: pass
 
+# 初始化資料庫
 with app.app_context():
+    # db.drop_all() # ★ 如果 Render 資料庫崩潰，取消這行註解跑一次，然後再註解回去
     db.create_all()
     init_achievements()
 
@@ -153,7 +157,7 @@ def grant_achievement(user, ach_name, earned_ids):
         db.session.commit()
         flash(f"🏆 解鎖成就：{ach_name}！")
 
-# --- 金流與會員路由 ---
+# --- 路由 ---
 
 @app.route('/create_ecpay_order', methods=['POST'])
 @login_required
@@ -162,12 +166,11 @@ def create_ecpay_order():
     order_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     amount = 100
     
-    # 1. 建立本地訂單紀錄 (狀態: Pending)
+    # 建立訂單
     new_order = Order(trade_no=order_id, amount=amount, user_id=current_user.id, status="Pending")
     db.session.add(new_order)
     db.session.commit()
 
-    # 2. 建立綠界參數
     params = {
         'MerchantID': ECPAY_MERCHANT_ID,
         'MerchantTradeNo': order_id,
@@ -177,7 +180,7 @@ def create_ecpay_order():
         'TradeDesc': 'Upgrade to Premium',
         'ItemName': '記帳管家-付費會員',
         'ReturnURL': 'https://www.example.com', 
-        'ClientBackURL': url_for('ecpay_return', order_id=order_id, _external=True), # 帶上 order_id
+        'ClientBackURL': url_for('ecpay_return', order_id=order_id, _external=True),
         'ChoosePayment': 'ALL',
         'EncryptType': '1',
     }
@@ -195,16 +198,11 @@ def create_ecpay_order():
 @app.route('/ecpay_return')
 @login_required
 def ecpay_return():
-    # 取得網址上的 order_id
     order_id = request.args.get('order_id')
-    
-    # 1. 找尋該訂單
     order = Order.query.filter_by(trade_no=order_id).first()
     
     if order and order.user_id == current_user.id:
-        # 2. 更新訂單狀態為 Paid
         order.status = "Paid"
-        # 3. 升級使用者
         current_user.is_premium = True
         db.session.commit()
         flash('🎉 付款成功！感謝您的支持，所有功能已解鎖。')
@@ -213,7 +211,6 @@ def ecpay_return():
         
     return redirect(url_for('settings'))
 
-# ★ 新增：取消付費會員 (降級)
 @app.route('/cancel_premium')
 @login_required
 def cancel_premium():
@@ -223,23 +220,19 @@ def cancel_premium():
         flash('⚠️ 您已取消付費會員資格，功能將恢復為免費版限制。')
     return redirect(url_for('settings'))
 
-# ★ 新增：恢復購買 (檢查是否有歷史付款紀錄)
 @app.route('/restore_purchase')
 @login_required
 def restore_purchase():
-    # 搜尋該使用者是否有任何狀態為 'Paid' 的訂單
     paid_order = Order.query.filter_by(user_id=current_user.id, status="Paid").first()
-    
     if paid_order:
         current_user.is_premium = True
         db.session.commit()
         flash('♻️ 恢復成功！系統查詢到您有歷史付款紀錄，權益已恢復。')
     else:
-        flash('❌ 恢復失敗。系統未找到您的付款紀錄，請確認是否購買過。')
-        
+        flash('❌ 恢復失敗。系統未找到您的付款紀錄。')
     return redirect(url_for('settings'))
 
-# --- 其他路由保持不變 (Analysis, Index, Settings...) ---
+# --- 其他路由 ---
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -297,8 +290,11 @@ def index():
     all_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='income').scalar() or 0
     all_expense = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='expense').scalar() or 0
     net_worth = all_income - all_expense
+    
+    # 除以零防呆
     fire_progress = 0
-    if current_user.fire_target > 0: fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
+    if current_user.fire_target > 0:
+        fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
 
     return render_template('index.html', transactions=transactions, user=current_user, current_month=current_month, net_worth=net_worth, fire_progress=fire_progress)
 
@@ -332,6 +328,7 @@ def analysis():
     if current_user.is_premium:
         for b in user_budgets:
             spent = exp_grouped.get(b.category, {'total': 0})['total']
+            # 除以零防呆
             if b.amount > 0: percent = min(100, int((spent / b.amount) * 100))
             else: percent = 100 if spent > 0 else 0
             status = "danger" if percent >= 100 else ("warning" if percent >= 80 else "success")
