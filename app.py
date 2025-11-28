@@ -142,7 +142,7 @@ with app.app_context():
     # 如果 Render 出現資料庫錯誤，請「取消下面這行的註解」(拿掉 #) 並上傳。
     # 網頁正常開啟後，請務必「把 # 加回去」並再次上傳，否則資料會一直被清空！
     
-    db.drop_all() 
+    #db.drop_all() 
     
     db.create_all()
     init_achievements()
