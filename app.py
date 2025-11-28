@@ -9,9 +9,9 @@ import csv
 import io
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SECRET_KEY'] = 'your_secret_key' # 正式上線建議改複雜一點
 
-# 自動判斷資料庫 (Render 用 Postgres，本地用 SQLite)
+# --- 資料庫連線設定 (Render / Local 自動切換) ---
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://")
@@ -104,6 +104,7 @@ def init_achievements():
     except:
         pass
 
+# 初始化資料庫
 with app.app_context():
     db.create_all()
     init_achievements()
@@ -179,9 +180,14 @@ def index():
         check_achievements(current_user, transaction=new_trans)
         return redirect(url_for('index'))
 
-    # ★★★ 修復重點：使用 extract 來兼容 PostgreSQL 與 SQLite ★★★
+    # ★ 日期篩選修復 (兼容 Postgres)
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
-    m_year, m_month = map(int, current_month.split('-'))
+    try:
+        m_year, m_month = map(int, current_month.split('-'))
+    except:
+        today = datetime.now()
+        m_year, m_month = today.year, today.month
+        current_month = today.strftime('%Y-%m')
 
     transactions = Transaction.query.filter(
         Transaction.user_id == current_user.id,
@@ -192,7 +198,11 @@ def index():
     all_income = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='income').scalar() or 0
     all_expense = db.session.query(func.sum(Transaction.amount)).filter_by(user_id=current_user.id, type='expense').scalar() or 0
     net_worth = all_income - all_expense
-    fire_progress = min(100, int((net_worth / current_user.fire_target) * 100)) if current_user.fire_target > 0 else 0
+    
+    # ★ 除以零防呆
+    fire_progress = 0
+    if current_user.fire_target > 0:
+        fire_progress = min(100, int((net_worth / current_user.fire_target) * 100))
 
     return render_template('index.html', transactions=transactions, user=current_user, 
                            current_month=current_month, net_worth=net_worth, fire_progress=fire_progress)
@@ -200,9 +210,14 @@ def index():
 @app.route('/analysis')
 @login_required
 def analysis():
-    # ★★★ 修復重點：使用 extract 來兼容 PostgreSQL 與 SQLite ★★★
+    # ★ 日期篩選修復 (兼容 Postgres)
     current_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
-    m_year, m_month = map(int, current_month.split('-'))
+    try:
+        m_year, m_month = map(int, current_month.split('-'))
+    except:
+        today = datetime.now()
+        m_year, m_month = today.year, today.month
+        current_month = today.strftime('%Y-%m')
 
     monthly_data = Transaction.query.filter(
         Transaction.user_id == current_user.id,
@@ -228,19 +243,29 @@ def analysis():
 
     user_budgets = Budget.query.filter_by(user_id=current_user.id).all()
     budget_analysis = []
+    
     for b in user_budgets:
         spent = exp_grouped.get(b.category, {'total': 0})['total']
-        percent = min(100, int((spent / b.amount) * 100))
+        # ★ 除以零防呆
+        if b.amount > 0:
+            percent = min(100, int((spent / b.amount) * 100))
+        else:
+            percent = 100 if spent > 0 else 0
+            
         status = "danger" if percent >= 100 else ("warning" if percent >= 80 else "success")
         budget_analysis.append({"category": b.category, "limit": b.amount, "spent": spent, "percent": percent, "status": status})
 
     top_cat = max(exp_grouped, key=lambda k: exp_grouped[k]['total']) if exp_grouped else None
+    
+    # ★ AI 建議邏輯 & 除以零防呆
     ai_advice = "目前收支狀況良好。"
     if total_inc > 0:
         rate = (total_inc - total_exp) / total_inc
         if rate < 0: ai_advice = f"本月已透支！最大支出為「{top_cat}」，請注意。"
         elif rate < 0.2: ai_advice = "儲蓄率偏低，建議設定預算來控制花費。"
         else: ai_advice = "儲蓄率健康！可以考慮將結餘進行投資。"
+    elif total_exp > 0:
+        ai_advice = "本月尚無收入，但已有支出，請注意現金流。"
     
     return render_template('analysis.html', 
                            exp_grouped=exp_grouped, inc_grouped=inc_grouped,
@@ -277,10 +302,13 @@ def update_budget():
     for cat in categories:
         amount_str = request.form.get(f'budget_{cat}')
         if amount_str and amount_str.strip():
-            amount = int(amount_str)
-            existing = Budget.query.filter_by(user_id=current_user.id, category=cat).first()
-            if existing: existing.amount = amount
-            else: db.session.add(Budget(category=cat, amount=amount, owner=current_user))
+            try:
+                amount = int(amount_str)
+                existing = Budget.query.filter_by(user_id=current_user.id, category=cat).first()
+                if existing: existing.amount = amount
+                else: db.session.add(Budget(category=cat, amount=amount, owner=current_user))
+            except ValueError:
+                pass
     db.session.commit()
     check_achievements(current_user, budget=True)
     flash('預算設定已更新！')
@@ -291,7 +319,10 @@ def update_budget():
 def update_profile():
     current_user.display_name = request.form['display_name']
     current_user.bio = request.form['bio']
-    current_user.fire_target = int(request.form['fire_target'])
+    try:
+        current_user.fire_target = int(request.form['fire_target'])
+    except ValueError:
+        pass
     db.session.commit()
     flash('設定已更新！')
     return redirect(url_for('settings'))
