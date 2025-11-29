@@ -148,7 +148,7 @@ def init_achievements():
 # 初始化資料庫
 with app.app_context():
     # ★★★ 正式上線：請務必將下面這行註解掉 (加上 #)，防止資料被清空 ★★★
-    # db.drop_all() 
+    db.drop_all() 
     
     db.create_all()
     init_achievements()
