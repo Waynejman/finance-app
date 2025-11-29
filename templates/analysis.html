@@ -18,10 +18,9 @@
         .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
         .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
         .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
-        .fab-btn { position: fixed; bottom: 85px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background-color: var(--accent); color: white; border: none; box-shadow: 0 4px 15px rgba(233, 196, 106, 0.5); font-size: 1.5rem; z-index: 999; align-items: center; justify-content: center; text-decoration: none; }
-        
         .ai-card { background-color: #E8F1EE; border-left: 5px solid var(--primary); color: #4A6359; }
         .ai-card-locked { background-color: #f8f9fa; border-left: 5px solid #ccc; color: #6c757d; }
+        .regret-card { background-color: #fff0f0; border-left: 5px solid #E76F51; color: #a13d3d; }
         .progress-budget { height: 8px; border-radius: 4px; background-color: #e9ecef; }
         .nav-link { color: rgba(255,255,255,0.8) !important; } .nav-link.active { color: #fff !important; font-weight: 700; border-bottom: 2px solid #fff; }
         .btn-check:checked + .btn-outline-custom { background-color: var(--primary); color: white; border-color: var(--primary); }
@@ -44,9 +43,7 @@
     <div class="container desktop-container mb-5">
         <div class="d-flex justify-content-between align-items-center mb-3 pt-3 pt-lg-0">
             <h4 class="text-secondary fw-bold"><i class="fas fa-chart-pie me-2" style="color: var(--primary);"></i>財務報表</h4>
-            <form action="/analysis" method="GET">
-                <input type="month" name="month" class="form-control shadow-sm border-0 fw-bold" value="{{ current_month }}" onchange="this.form.submit()" style="color: var(--primary);">
-            </form>
+            <form action="/analysis" method="GET"><input type="month" name="month" class="form-control shadow-sm border-0 fw-bold" value="{{ current_month }}" onchange="this.form.submit()" style="color: var(--primary);"></form>
         </div>
 
         <div class="row">
@@ -65,12 +62,15 @@
                             </div>
                         </div>
                         
-                        <div class="mt-4 p-3 rounded-3 text-start shadow-sm mb-3 {{ 'ai-card' if user.is_premium else 'ai-card-locked' }}">
+                        <div class="mt-4 p-3 rounded-3 text-start regret-card shadow-sm mb-3">
+                            <div class="d-flex justify-content-between align-items-center"><h6 class="fw-bold mb-0"><i class="fas fa-sad-tear me-2"></i>衝動消費指數</h6><span class="fw-bold fs-5">{{ regret_percent }}%</span></div>
+                            <p class="small mb-0 mt-2">本月你在「後悔/衝動」的消費上花了 <strong>${{ regret_amount }}</strong></p>
+                        </div>
+
+                        <div class="p-3 rounded-3 text-start shadow-sm mb-3 {{ 'ai-card' if user.is_premium else 'ai-card-locked' }}">
                             <h6 class="fw-bold"><i class="fas fa-robot me-2"></i>AI 財務顧問</h6>
                             <p class="small mb-0">{{ ai_advice }}</p>
-                            {% if not user.is_premium %}
-                                <a href="/settings" class="btn btn-sm btn-outline-secondary mt-2 w-100">去升級解鎖</a>
-                            {% endif %}
+                            {% if not user.is_premium %}<a href="/settings" class="btn btn-sm btn-outline-secondary mt-2 w-100">去升級解鎖</a>{% endif %}
                         </div>
 
                         {% if budget_analysis %}
@@ -78,12 +78,8 @@
                             <h6 class="fw-bold text-secondary mb-3 small">預算執行 (付費功能)</h6>
                             {% for b in budget_analysis %}
                             <div class="mb-3">
-                                <div class="d-flex justify-content-between small mb-1">
-                                    <span class="fw-bold">{{ b.category }}</span><span class="text-muted">${{ b.spent }} / ${{ b.limit }}</span>
-                                </div>
-                                <div class="progress progress-budget">
-                                    <div class="progress-bar bg-{{ b.status }}" role="progressbar" style="width: {{ b.percent }}%"></div>
-                                </div>
+                                <div class="d-flex justify-content-between small mb-1"><span class="fw-bold">{{ b.category }}</span><span class="text-muted">${{ b.spent }} / ${{ b.limit }}</span></div>
+                                <div class="progress progress-budget"><div class="progress-bar bg-{{ b.status }}" role="progressbar" style="width: {{ b.percent }}%"></div></div>
                             </div>
                             {% endfor %}
                         </div>
@@ -95,16 +91,14 @@
             <div class="col-lg-7">
                 <h6 class="mb-3 text-secondary fw-bold">分類明細</h6>
                 <div class="accordion shadow-sm rounded-4 overflow-hidden border-0" id="accordionExpense">
-                    {% if exp_grouped|length == 0 %} <div class="p-4 text-center bg-white text-muted">本月無支出資料</div> {% endif %}
                     {% for cat, data in exp_grouped.items() %}
                     <div class="accordion-item border-0 border-bottom">
                         <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ce{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--expense);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>
-                        <div id="ce{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accordionExpense"><div class="accordion-body bg-light p-0"><ul class="list-group list-group-flush">{% for item in data.details %}<li class="list-group-item bg-light border-0 d-flex justify-content-between px-4 py-2"><span>{{ item.item_name }}</span><span class="text-danger">-${{ item.amount }}</span></li>{% endfor %}</ul></div></div>
+                        <div id="ce{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#accordionExpense"><div class="accordion-body bg-light p-0"><ul class="list-group list-group-flush">{% for item in data.details %}<li class="list-group-item bg-light border-0 d-flex justify-content-between px-4 py-2"><div><span>{{ item.item_name }}</span> {% if item.mood == 'regret' %}<span class="badge bg-dark rounded-pill ms-1" style="font-size:0.6em;">衝動</span>{% endif %}</div><span class="text-danger">-${{ item.amount }}</span></li>{% endfor %}</ul></div></div>
                     </div>
                     {% endfor %}
                 </div>
                 <div class="accordion shadow-sm rounded-4 overflow-hidden d-none border-0" id="accordionIncome">
-                    {% if inc_grouped|length == 0 %} <div class="p-4 text-center bg-white text-muted">本月無收入資料</div> {% endif %}
                     {% for cat, data in inc_grouped.items() %}
                     <div class="accordion-item border-0 border-bottom">
                         <h2 class="accordion-header"><button class="accordion-button collapsed py-3" type="button" data-bs-toggle="collapse" data-bs-target="#ci{{ loop.index }}"><div class="d-flex justify-content-between w-100 me-3"><span class="fw-bold"><i class="fas fa-circle me-2 small" style="color: var(--income);"></i> {{ cat }}</span><span class="fw-bold">${{ data.total }}</span></div></button></h2>

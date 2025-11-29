@@ -8,38 +8,30 @@
     <style>
         :root { --primary: #86A697; --secondary: #F4F7F6; --text-dark: #2C3E50; --expense: #E76F51; --income: #2A9D8F; --accent: #E9C46A; }
         body { background-color: var(--secondary); font-family: 'Segoe UI', sans-serif; padding-bottom: 80px; }
-        
-        /* 容器與卡片 */
         .desktop-container { max-width: 1000px; margin: auto; }
         .card-custom { border: none; border-radius: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); background: #fff; }
         .card-overview { background: linear-gradient(135deg, var(--primary), #6B8A7C); color: white; }
-        
-        /* RWD 導航與顯示切換 */
         .navbar-desktop { display: flex; background-color: var(--primary); }
         .mobile-bottom-nav, .fab-btn, .mobile-header { display: none; }
-        
         @media (max-width: 991px) {
             .navbar-desktop { display: none !important; }
             .mobile-header, .mobile-bottom-nav, .fab-btn { display: flex; }
             .desktop-form-area { display: none; }
             .container { padding-left: 20px; padding-right: 20px; }
         }
-
-        /* 手機版元件 */
         .mobile-header { justify-content: space-between; align-items: center; padding: 20px 0; }
         .mobile-bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background: white; border-top: 1px solid #eee; z-index: 1000; justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); }
         .mobile-nav-item { text-decoration: none; color: #999; text-align: center; font-size: 0.75rem; display: flex; flex-direction: column; width: 25%; }
         .mobile-nav-item i { font-size: 1.4rem; margin-bottom: 2px; }
         .mobile-nav-item.active { color: var(--primary); font-weight: bold; }
-        
         .fab-btn { position: fixed; bottom: 85px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background-color: var(--accent); color: white; border: none; box-shadow: 0 4px 15px rgba(233, 196, 106, 0.6); font-size: 1.5rem; z-index: 999; align-items: center; justify-content: center; }
-        
         .progress-custom { background-color: rgba(255,255,255,0.3); border-radius: 10px; height: 10px; }
         .nav-link { color: rgba(255,255,255,0.8) !important; } .nav-link.active { color: #fff !important; font-weight: 700; border-bottom: 2px solid #fff; }
+        .btn-check:checked + .btn-outline-mood { background-color: #f8f9fa; border-color: var(--primary); transform: scale(1.05); }
+        .btn-outline-mood { border: 1px solid #eee; color: #666; font-size: 1.2rem; }
     </style>
 </head>
 <body>
-    
     <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop mb-4 sticky-top shadow-sm">
         <div class="container desktop-container">
             <a class="navbar-brand fw-bold" href="/"><i class="fas fa-wallet me-2"></i>記帳管家</a>
@@ -57,7 +49,6 @@
     </nav>
 
     <div class="container desktop-container">
-        
         <div class="mobile-header">
             <div><h4 class="fw-bold mb-0 text-dark">早安,</h4><small class="text-muted">{{ user.display_name }}</small></div>
             <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=E9C46A&color=fff&rounded=true" width="45" class="rounded-circle shadow-sm">
@@ -77,11 +68,7 @@
         </div>
 
         <div class="row mb-3">
-            <div class="col-6">
-                <form action="/" method="GET">
-                    <input type="month" name="month" class="form-control border-0 shadow-sm fw-bold" style="color: var(--primary);" value="{{ current_month }}" onchange="this.form.submit()">
-                </form>
-            </div>
+            <div class="col-6"><form action="/" method="GET"><input type="month" name="month" class="form-control border-0 shadow-sm fw-bold" style="color: var(--primary);" value="{{ current_month }}" onchange="this.form.submit()"></form></div>
         </div>
 
         <div class="row">
@@ -108,6 +95,14 @@
                             <div class="col-8"><input type="number" name="amount" class="form-control border-0 bg-light" placeholder="金額" required></div>
                             <div class="col-6"><select name="main_category" class="form-select border-0 bg-light" id="catSelectDesk"></select></div>
                             <div class="col-6"><input type="text" name="item_name" class="form-control border-0 bg-light" placeholder="細項" required></div>
+                            <div class="col-12">
+                                <label class="small text-muted fw-bold mb-1">感覺？</label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" name="mood" id="mh1" value="happy"><label class="btn btn-outline-mood" for="mh1">😊</label>
+                                    <input type="radio" class="btn-check" name="mood" id="mn1" value="neutral" checked><label class="btn btn-outline-mood" for="mn1">😐</label>
+                                    <input type="radio" class="btn-check" name="mood" id="mr1" value="regret"><label class="btn btn-outline-mood" for="mr1">😫</label>
+                                </div>
+                            </div>
                             <div class="col-12"><input type="text" name="note" class="form-control border-0 bg-light" placeholder="備註..."></div>
                         </div>
                         <button type="submit" class="btn w-100 mt-3 rounded-pill fw-bold text-white" style="background-color: var(--primary);">儲存紀錄</button>
@@ -118,10 +113,7 @@
             <div class="col-lg-8">
                 <h6 class="mb-3 text-secondary fw-bold ps-1">近期明細</h6>
                 {% if transactions|length == 0 %}
-                    <div class="text-center text-muted mt-5 py-5 card card-custom border-0 bg-white">
-                        <i class="fas fa-leaf fa-3x mb-3 text-secondary opacity-25"></i>
-                        <p>本月還沒有紀錄，快去記一筆吧！</p>
-                    </div>
+                    <div class="text-center text-muted mt-5 py-5 card card-custom border-0 bg-white"><i class="fas fa-leaf fa-3x mb-3 text-secondary opacity-25"></i><p>本月還沒有紀錄，快去記一筆吧！</p></div>
                 {% else %}
                     {% for date, list in transactions | groupby('date') %}
                     <div class="card card-custom mb-3 overflow-hidden">
@@ -134,8 +126,9 @@
                             {% for t in list %}
                             <div class="list-group-item border-0 d-flex justify-content-between align-items-center px-4 py-3">
                                 <div class="d-flex align-items-center">
-                                    <div class="rounded-circle d-flex align-items-center justify-content-center me-3 text-white shadow-sm" style="width: 42px; height: 42px; background-color: {{ '#E76F51' if t.type=='expense' else '#2A9D8F' }}">
-                                        <i class="fas fa-{{ 'utensils' if '食' in t.main_category else ('bus' if '行' in t.main_category else 'tag') }} small"></i>
+                                    <div class="rounded-circle d-flex align-items-center justify-content-center me-3 text-white shadow-sm position-relative" style="width: 42px; height: 42px; background-color: {{ '#E76F51' if t.type=='expense' else '#2A9D8F' }}">
+                                        <i class="fas fa-{{ 'utensils' if '食' in t.main_category else 'tag' }} small"></i>
+                                        {% if t.mood == 'regret' %}<span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark" style="font-size:0.5rem;">😫</span>{% endif %}
                                     </div>
                                     <div><div class="fw-bold text-dark">{{ t.item_name }}</div><small class="text-muted">{{ t.main_category }}</small></div>
                                 </div>
@@ -156,10 +149,10 @@
     <nav class="mobile-bottom-nav">
         <a href="/" class="mobile-nav-item active"><i class="fas fa-home"></i>首頁</a>
         <a href="/analysis" class="mobile-nav-item"><i class="fas fa-chart-pie"></i>分析</a>
-        <div style="width: 20%;"></div> <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
+        <div style="width: 20%;"></div>
+        <a href="#" class="mobile-nav-item disabled" style="opacity:0;">.</a>
         <a href="/settings" class="mobile-nav-item"><i class="fas fa-cog"></i>設定</a>
     </nav>
-
     <button class="fab-btn" data-bs-toggle="modal" data-bs-target="#mobileAddModal"><i class="fas fa-plus"></i></button>
 
     <div class="modal fade" id="mobileAddModal" tabindex="-1">
@@ -174,6 +167,7 @@
                             <div class="col-12"><input type="number" name="amount" class="form-control bg-light border-0 py-3 fs-3 text-center fw-bold" placeholder="$0" required></div>
                             <div class="col-6"><select name="main_category" class="form-select bg-light border-0" id="catSelectMob"></select></div>
                             <div class="col-6"><input type="text" name="item_name" class="form-control bg-light border-0" placeholder="細項" required></div>
+                            <div class="col-12"><label class="small text-muted fw-bold mb-1">感覺？</label><div class="btn-group w-100" role="group"><input type="radio" class="btn-check" name="mood" id="mh2" value="happy"><label class="btn btn-outline-mood" for="mh2">😊</label><input type="radio" class="btn-check" name="mood" id="mn2" value="neutral" checked><label class="btn btn-outline-mood" for="mn2">😐</label><input type="radio" class="btn-check" name="mood" id="mr2" value="regret"><label class="btn btn-outline-mood" for="mr2">😫</label></div></div>
                             <div class="col-12"><textarea name="note" class="form-control bg-light border-0" placeholder="備註"></textarea></div>
                             <div class="col-12"><button type="submit" class="btn w-100 rounded-pill fw-bold text-white py-2" style="background-color: var(--primary);">儲存</button></div>
                         </div>
